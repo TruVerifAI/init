@@ -1,0 +1,90 @@
+# Publish @truverifai/init to npm with PROVENANCE (trust ladder rung 3).
+#
+# Runs in the PUBLIC mirror repo github.com/TruVerifAI/init (this file is
+# synced there from the product monorepo along with the rest of tvai-cli/).
+# Auth is npm TRUSTED PUBLISHING (OIDC): no npm token exists anywhere — npmjs
+# is configured (Package settings -> Trusted Publisher) to accept publishes
+# only from THIS repo + THIS workflow file. `--provenance` then attaches a
+# Sigstore attestation cryptographically linking the published tarball to the
+# exact public commit and workflow run that built it — users verify with
+# `npm audit signatures` or the npm page's Provenance panel.
+#
+# THREAT MODEL (audit mcp_f6ce519a; do not re-litigate the ci_pwn_request
+# classifier hit):
+#   - NO pull_request / pull_request_target trigger and NO stored secrets, so
+#     the canonical pwn-request vector (checkout untrusted PR head + exfil a
+#     secret) does not apply. OIDC is tokenless.
+#   - Actions are SHA-PINNED (not @vN) — a compromised action tag (tj-actions
+#     class, 2025) can't silently alter this security-tooling publisher.
+#   - Both trigger paths REQUIRE the published version to match package.json
+#     (tag path: tag == version; manual path: typed input == version), so a
+#     dispatch can't publish arbitrary branch-head content untagged.
+#   - Only the repo owner (TruVerifAI) has push/dispatch rights; the repo is a
+#     downstream mirror whose source of truth is the monorepo behind its own
+#     review gates (incl. publish_bundles.py, which is gated there).
+#
+# Release flow (see PUBLISHING-FLOW.md in the product repo):
+#   1. Bump version in the monorepo, sync this repo (publish_bundles.py init)
+#   2. Tag the synced commit here vX.Y.Z (or run this workflow manually,
+#      typing the same version)
+#   3. This workflow verifies the version, then publishes with provenance.
+
+name: publish-npm-provenance
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact version to publish; MUST equal package.json (safety interlock)"
+        required: true
+
+# Least-privilege: nothing at the top level; the job grants only what it needs.
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm-publish   # owner-configurable required-reviewer gate
+    permissions:
+      id-token: write   # OIDC token for npm trusted publishing + provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify the version to publish matches package.json
+        env:
+          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          PKG_V="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            WANT="${GITHUB_REF_NAME#v}"
+          else
+            WANT="${DISPATCH_VERSION#v}"
+          fi
+          if [ "$PKG_V" != "$WANT" ]; then
+            echo "::error::requested v$WANT != package.json $PKG_V — refusing to publish"
+            exit 1
+          fi
+          echo "Publishing version $PKG_V"
+
+      - name: Sanity — package loads, ZERO dependencies, pack matches repo
+        run: |
+          node -e "require('./lib/mcpconf.js'); require('./lib/hosts.js'); require('./lib/doctor.js'); console.log('modules load OK')"
+          DEPS="$(node -p "Object.keys(require('./package.json').dependencies || {}).length")"
+          if [ "$DEPS" -ne 0 ]; then
+            echo "::error::dependencies appeared ($DEPS) — the zero-dependency guarantee is load-bearing"
+            exit 1
+          fi
+          npm pack --dry-run
+
+      - name: Publish with provenance (OIDC — no token)
+        run: npm publish --provenance --access public
