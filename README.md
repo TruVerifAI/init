@@ -78,12 +78,16 @@ not gated. This tool never blocks your work on its own failure.
 
 ## Verifying this package
 
-Until provenance attestation ships (planned): `npm pack @truverifai/init`,
-extract, and read it — `bin/tvai.js`, `lib/*.js`, and `vendor/gates/*.py`
-are the entire runtime surface, dependency-free. The gate code
-(`vendor/gates/`) is also published openly at
+The full source is public at
+[github.com/TruVerifAI/init](https://github.com/TruVerifAI/init) — every
+release is synced there. To verify a tarball by hand:
+`npm pack @truverifai/init`, extract, and diff against the repo —
+`bin/tvai.js`, `lib/*.js`, and `vendor/gates/*.py` are the entire runtime
+surface, dependency-free. The gate code (`vendor/gates/`) is also
+published at
 [github.com/TruVerifAI/claude-plugins](https://github.com/TruVerifAI/claude-plugins)
-(`plugins/panel-review/hooks/`).
+(`plugins/panel-review/hooks/`). Build provenance attestation (CI publish
+with cryptographic linkage to this repo) is the planned next step.
 
 ## Support
 

@@ -31,5 +31,12 @@
   ],
   "author": "TruVerifAI <support@truverif.ai>",
   "license": "MIT",
-  "homepage": "https://truverif.ai/settings/mcp"
+  "homepage": "https://truverif.ai/settings/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TruVerifAI/init.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TruVerifAI/init/issues"
+  }
 }
