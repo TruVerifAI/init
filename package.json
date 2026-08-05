@@ -1,0 +1,35 @@
+{
+  "name": "@truverifai/init",
+  "version": "0.19.25",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "TruVerifAI setup CLI - one command to connect your AI coding agents (device-flow login, gate install, end-to-end verification). npx @truverifai/init",
+  "bin": {
+    "tvai": "bin/tvai.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "truverifai",
+    "code-review",
+    "mcp",
+    "gates",
+    "claude",
+    "codex",
+    "copilot",
+    "cursor",
+    "gemini"
+  ],
+  "author": "TruVerifAI <support@truverif.ai>",
+  "license": "MIT",
+  "homepage": "https://truverif.ai/settings/mcp"
+}

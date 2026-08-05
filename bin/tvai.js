@@ -1,0 +1,176 @@
+#!/usr/bin/env node
+// tvai — TruVerifAI setup CLI (implementation plan §3.2).
+//
+//   tvai            = tvai init
+//   tvai init       detect agents -> login (device flow) -> install gate code
+//                   + per-host gate configs -> connect the MCP review tools
+//                   (user-level configs, literal key) -> offer proactive rules
+//                   (prompt, default yes) -> doctor
+//   tvai login      device-flow login only (writes ~/.truverifai/config.json)
+//   tvai doctor     verify: connectivity, key, python, SYNTHETIC GATE FIRE,
+//                   tools-half config per platform
+//   tvai rules      add/refresh the proactive rules blocks in this repo's
+//                   agent files ([check|remove|status])
+//   tvai logout     remove the stored key
+//
+// Zero dependencies (Node built-ins only) so `npx @truverifai/init` is the
+// whole install. Identity is established in the BROWSER (device flow) — this
+// process never sees a password and never asks for a pasted key.
+"use strict";
+
+const os = require("os");
+const readline = require("readline");
+const { spawn } = require("child_process");
+
+const api = require("../lib/api");
+const config = require("../lib/config");
+const { detect } = require("../lib/detect");
+const hosts = require("../lib/hosts");
+const mcpconf = require("../lib/mcpconf");
+const rules = require("../lib/rules");
+const doctor = require("../lib/doctor");
+
+function openBrowser(url) {
+  try {
+    const cmd =
+      process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", url]]
+        : process.platform === "darwin"
+          ? ["open", [url]]
+          : ["xdg-open", [url]];
+    spawn(cmd[0], cmd[1], { stdio: "ignore", detached: true }).unref();
+  } catch (e) {
+    /* printing the URL is the fallback */
+  }
+}
+
+async function login(platformsList) {
+  const base = config.baseUrl();
+  const label = os.hostname().slice(0, 60);
+  const start = await api.deviceStart(base, label, platformsList || []);
+  const approveUrl =
+    "https://truverif.ai/device?code=" + encodeURIComponent(start.user_code);
+  console.log("");
+  console.log("  Open  " + approveUrl);
+  console.log("  and confirm this code matches:  " + start.user_code);
+  console.log("  (approve in a browser where you're signed in to truverif.ai)");
+  console.log("");
+  openBrowser(approveUrl);
+  process.stdout.write("  Waiting for approval");
+  const res = await api.deviceWait(base, start.device_code, start.interval, () =>
+    process.stdout.write(".")
+  );
+  console.log("");
+  if (res.status !== "complete") {
+    console.error("  Login " + res.status + ". Run `tvai login` to retry.");
+    return null;
+  }
+  config.write({ api_key: res.api_key });
+  console.log("  ✓ Signed in — key '" + res.name + "' stored in " + config.FILE);
+  return res.api_key;
+}
+
+async function init(argv) {
+  const cwd = process.cwd();
+  const det = detect(cwd);
+  const found = ["claude", "codex", "copilot", "vscode", "cursor", "gemini"].filter(
+    (k) => det[k]
+  );
+  console.log("Detected agents: " + (found.join(", ") || "none"));
+
+  let key = config.apiKey();
+  if (!key) {
+    key = await login(found);
+    if (!key) return 1;
+  } else {
+    console.log("  ✓ existing key found (" + (process.env.TVAI_API_KEY ? "env" : config.FILE) + ")");
+  }
+
+  // Gate code -> ~/.truverifai/gates/current (needed by config-file hosts).
+  const gate = hosts.installGateCode();
+  gate.notes.forEach((n) => console.log("  " + (gate.installed ? "✓ " : "! ") + n));
+
+  const results = [];
+  if (det.claude) results.push(["Claude Code", hosts.installClaude()]);
+  if (det.codex) results.push(["Codex CLI", hosts.installCodex()]);
+  if (det.codex) results.push(["Codex hooks", hosts.installCodexHooks()]);
+  if (det.copilot || det.vscode)
+    results.push(["Copilot (repo)", det.in_git_repo ? hosts.installCopilot(cwd, "repo") : hosts.installCopilot(cwd, "user")]);
+  if (det.cursor) results.push(["Cursor", hosts.installCursor(cwd)]);
+  if (det.gemini && det.in_git_repo) results.push(["Gemini CLI", hosts.installGemini(cwd)]);
+  if (det.antigravity && det.in_git_repo)
+    results.push(["Antigravity", hosts.installAntigravity(cwd)]);
+
+  for (const [name, r] of results) {
+    console.log((r.installed ? "  ✓ " : "  ! ") + name);
+    r.notes.forEach((n) => console.log("      " + n));
+  }
+
+  // MCP TOOLS half (init v2): connect the review tools the gate messages route
+  // to. Without these, a gate block on the config-file hosts points the agent
+  // at tools it doesn't have. User-level files only; literal key (env-var
+  // header interpolation is unreliable across hosts).
+  console.log("");
+  console.log("Connecting the review tools (MCP):");
+  const tools = [];
+  if (det.claude) tools.push(["Claude Code", mcpconf.writeClaudeCreds(key)]);
+  if (det.claude) tools.push(["Claude auto-mode allowlist", mcpconf.writeClaudePermissionAllow()]);
+  if (det.codex) tools.push(["Codex CLI", mcpconf.writeCodex(key)]);
+  if (det.copilot) tools.push(["Copilot CLI", mcpconf.writeCopilot(key)]);
+  if (det.vscode) tools.push(["VS Code", mcpconf.writeVSCode(key)]);
+  if (det.cursor) tools.push(["Cursor", mcpconf.writeCursor(key)]);
+  if (det.gemini) tools.push(["Gemini CLI", mcpconf.writeGemini(key)]);
+  for (const [name, r] of tools) {
+    console.log((r.installed ? "  ✓ " : "  ! ") + name);
+    r.notes.forEach((n) => console.log("      " + n));
+  }
+
+  // Proactive rules (init v2): interactive, defaults to yes; CI skips.
+  const ruleNotes = await rules.initStep(det, cwd, argv);
+  console.log("");
+  ruleNotes.forEach((n) => console.log(n));
+
+  console.log("");
+  return doctor.run(argv);
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const cmd = argv.find((a) => !a.startsWith("-")) || "init";
+  try {
+    if (cmd === "init") process.exitCode = await init(argv);
+    else if (cmd === "login") process.exitCode = (await login([])) ? 0 : 1;
+    else if (cmd === "doctor") process.exitCode = await doctor.run(argv);
+    else if (cmd === "hook") {
+      // tvai hook install — the universal git pre-commit fallback (phase 3).
+      // The wrapper invokes the gate code at ~/.truverifai/gates/current, so
+      // install that FIRST — otherwise the wrapper points at a missing file,
+      // the gate never runs, and the pre-commit gate is silently dead (the
+      // owner's 2026-07-29 step-1.4 finding). Idempotent; safe to re-run.
+      const g = hosts.installGateCode();
+      g.notes.forEach((n) => console.log((g.installed ? "  ✓ " : "  ! ") + n));
+      const r = hosts.installGitPrecommit(process.cwd());
+      r.notes.forEach((n) => console.log((r.installed ? "  ✓ " : "  ! ") + n));
+      process.exitCode = g.installed && r.installed ? 0 : 1;
+    } else if (cmd === "rules") {
+      // tvai rules [check|remove|status] — manage the proactive-rules blocks
+      // in this repo's agent files (default: interactive add/update).
+      process.exitCode = await rules.run(argv);
+    } else if (cmd === "logout") {
+      config.write({ api_key: "" });
+      // Also strip the literal key from every platform MCP config init wrote
+      // (audit mcp_e78430be F-001 — offboarding must not strand secrets).
+      const removed = mcpconf.removeAll();
+      removed.forEach((n) => console.log("  " + n));
+      console.log("Key removed from " + config.FILE + ". Revoke it at https://truverif.ai/settings/api-keys");
+    } else {
+      console.log("usage: tvai [init|login|doctor|rules|logout]");
+      process.exitCode = 2;
+    }
+  } catch (e) {
+    console.error("tvai: " + (e && e.message ? e.message : e));
+    process.exitCode = 1;
+  }
+}
+
+main();

@@ -1,0 +1,217 @@
+"""Host base class — the adapter contract every platform implements.
+
+The base class IS the Claude Code wire behavior (Codex's PreToolUse contract is
+character-identical, and several others are near-identical), so most adapters
+override only what genuinely differs. The contract (implementation plan §2.1):
+
+    normalize_input(raw)   stdin JSON -> claude-shaped payload (the core's
+                           internal vocabulary: Bash / Write / Edit / MultiEdit /
+                           PrebuiltDiff + claude-shaped tool_input fields)
+    native_option(name)    host-native config lookup (env injected by the host's
+                           plugin system), or None
+    emit_deny / emit_ask / emit_allow / emit_allow_advisory
+                           final wire output + exit. Receives FINAL strings —
+                           version stamping etc. is composed by gate_lib BEFORE
+                           delegation, so adapters stay dependency-free.
+    capabilities           dict of static facts the core may consult
+
+Hard invariants every adapter MUST keep:
+  - fail OPEN: any internal error ends in exit(0) allow, never a stuck agent.
+  - the deny reason must REACH THE MODEL (that is the entire product — a block
+    without routing text is a wall, not a router).
+  - never print secrets.
+
+NOTE: adapters must not import gate_lib (gate_lib imports host — keep the
+dependency one-way).
+"""
+
+import json
+import os
+import sys
+
+
+class Host(object):
+
+    # Option B update nudge: the per-host, AGENT-ACTIONABLE instruction the
+    # nudge line ends with. Base = every vendored-gate host (the agent can run
+    # the command itself); hosts with a different update path override.
+    update_instruction = ("To update, run: npx @truverifai/init@latest "
+                          "(refreshes the TruVerifAI gates on this machine).")
+    name = "base"
+
+    # -- capabilities ------------------------------------------------------
+    # Static facts about the host. `write_gate`/`commit_gate` describe what the
+    # host DELIVERS today; per plan §2.5 these drive COPY and doctor output only,
+    # never control flow — hooks stay registered even where an event is not
+    # currently delivered, so an upstream fix turns the gate on with no release.
+    capabilities = {
+        "write_gate": True,
+        "commit_gate": True,
+        "structured_deny": True,
+        "supports_ask": True,
+        "supports_advisory_context": True,
+        "generic_nonzero_fails_closed": False,
+        "stderr_reaches_model": "yes",
+        # Effective-cwd resolver stage-1 opt-out (audit mcp_a91ec2e1 F-001): a
+        # host may carry a directory-ish shell-tool argument it does NOT honor
+        # (Cursor's working_directory is documented-ignored in multi-root
+        # workspaces). A Phase-2 payload capture proving that sets this False
+        # on that host's adapter, and the resolver skips the dir-arg stage
+        # there — falling back to the payload cwd (fail-open, today's
+        # behavior), never fail-closed. cd-chain and `git -C` stages are
+        # command-authored, not host-forwarded, so they stay active.
+        "honors_dir_arg": True,
+    }
+
+    # Manifest filenames plugin_version() probes, relative to the plugin root
+    # (first hit wins). Ordered: own-host manifest first, then the others so a
+    # mixed install still stamps a version.
+    manifest_paths = (
+        os.path.join(".claude-plugin", "plugin.json"),
+        os.path.join(".codex-plugin", "plugin.json"),
+        os.path.join(".cursor-plugin", "plugin.json"),
+        "plugin.json",
+        "gemini-extension.json",
+    )
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def run(self, fn):
+        """Execute a gate entrypoint. Base: no wrapper — the launcher's
+        exit-0 coercion is the belt on fail-open hosts. Fail-CLOSED hosts
+        (copilot_cli) override with total exception containment (§3.5)."""
+        fn()
+
+    # -- config ------------------------------------------------------------
+
+    def native_option(self, name):
+        """Host-native value for option `name` (lowercase snake, e.g. 'api_token'),
+        or None when the host has no native mechanism / no value."""
+        return None
+
+    # -- input -------------------------------------------------------------
+
+    def normalize_input(self, raw):
+        """Map the host's PreToolUse-equivalent payload onto the core vocabulary.
+
+        Returns a dict with (at least) tool_name / tool_input / cwd / session_id.
+        Base = Claude Code shape = identity. Adapters translate tool names, field
+        casing, and write-tool input shapes; an unrecognized tool passes through
+        untouched (the gates allow anything they don't recognize — fail open)."""
+        out = dict(raw or {})
+        # Claude Code ships a native PowerShell tool on Windows (v2.1.84,
+        # PRIMARY shell since ~v2.1.139) — found live 2026-08-03 as a P1:
+        # the "Bash"-matched hooks never fired for it, so PowerShell-routed
+        # commits ran UNGATED. Widening the matcher alone would not fix it
+        # (audit_gate keys on tool_name == "Bash"), so the rename happens
+        # here too. The PowerShell tool's input carries the same {command}
+        # field as Bash, making the rename the entire mapping.
+        if out.get("tool_name") == "PowerShell":
+            # Provenance (audit F-001): keep the real tool name so logs and
+            # any downstream consumer can distinguish PowerShell commits.
+            out["original_tool_name"] = "PowerShell"
+            out["tool_name"] = "Bash"
+        return out
+
+    # -- helpers shared by camelCase hosts ----------------------------------
+
+    @staticmethod
+    def _camel_common(raw):
+        """Map Copilot-family camelCase common fields onto snake_case."""
+        out = dict(raw or {})
+        for camel, snake in (("toolName", "tool_name"), ("toolArgs", "tool_input"),
+                             ("toolInput", "tool_input"), ("sessionId", "session_id"),
+                             ("workingDirectory", "cwd")):
+            if camel in out and snake not in out:
+                out[snake] = out[camel]
+        return out
+
+    @staticmethod
+    def map_write_input(tool_input):
+        """Best-effort mapping of a foreign write-tool input onto claude Write/Edit
+        fields. Returns (normalized_tool_name, normalized_tool_input) or (None, None)
+        when the shape is unrecognized (caller falls through -> gate allows).
+
+        Key aliases seen across hosts' file tools; unknown shapes fail open by
+        design — a wrong guess here would classify the WRONG content, which is
+        worse than no gate (silently misleading)."""
+        ti = dict(tool_input or {})
+        path = ti.get("file_path") or ti.get("filePath") or ti.get("path") or ""
+        old = ti.get("old_string") if ti.get("old_string") is not None else (
+            ti.get("oldText") if ti.get("oldText") is not None else ti.get("old_str"))
+        new = ti.get("new_string") if ti.get("new_string") is not None else (
+            ti.get("newText") if ti.get("newText") is not None else ti.get("new_str"))
+        content = ti.get("content") if ti.get("content") is not None else (
+            ti.get("contents") if ti.get("contents") is not None else (
+                ti.get("text") if ti.get("text") is not None else
+                # Copilot CLI's `create` tool (live capture 2026-08-02):
+                # {"path": ..., "file_text": ...}
+                ti.get("file_text")))
+        if path and old is not None and new is not None:
+            return "Edit", {"file_path": path, "old_string": old, "new_string": new}
+        if path and content is not None:
+            return "Write", {"file_path": path, "content": content}
+        return None, None
+
+    # -- output ------------------------------------------------------------
+    # Base implements the Claude Code / Codex wire format.
+
+    def emit_deny(self, reason, system_message=None):
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }
+        }
+        if system_message:
+            out["systemMessage"] = system_message
+        print(json.dumps(out))
+        sys.exit(0)
+
+    def emit_ask(self, reason, system_message=None):
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": reason,
+            }
+        }
+        if system_message:
+            out["systemMessage"] = system_message
+        print(json.dumps(out))
+        sys.exit(0)
+
+    def emit_allow(self, note=None):
+        if note:
+            sys.stderr.write("TruVerifAI: " + note + "\n")
+        sys.exit(0)
+
+    def emit_allow_advisory(self, additional_context):
+        """Allow + model-visible advisory. Base uses Claude Code's additionalContext
+        (no permissionDecision — the normal permission flow still applies). Hosts
+        without an advisory channel override to a stderr note."""
+        try:
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": additional_context,
+            }}))
+            sys.stdout.flush()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    def emit_post_advisory(self, message, event_name="PostToolUse"):
+        """POST-hook model-visible advisory (the post-commit backstop). Base =
+        Claude Code / Codex wire; hosts with a different post contract override.
+        Does NOT exit — post hooks fall through to their own exit 0."""
+        try:
+            ev = event_name if event_name in ("PostToolUse",
+                                              "PostToolUseFailure") else "PostToolUse"
+            print(json.dumps({"hookSpecificOutput": {
+                "hookEventName": ev,
+                "additionalContext": message,
+            }}))
+            sys.stdout.flush()
+        except Exception:
+            pass
