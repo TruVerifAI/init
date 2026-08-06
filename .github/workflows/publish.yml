@@ -60,6 +60,21 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm to a trusted-publishing-capable version
+        # Tokenless OIDC trusted publishing requires npm >= 11.5.1; node 22
+        # ships npm 10.9.x, which SIGNS provenance but then PUTs the tarball
+        # unauthenticated -> 404 (the 2026-08-06 first-run failure). `^11.5.1`
+        # caps the major (no silent jump to npm 12's CLI changes — matches the
+        # SHA-pin determinism posture; validate + bump when npm 12 is ready)
+        # while self-healing patches. (Accepted bootstrap circularity: npm is
+        # fetched from the same registry the job publishes to — the runner
+        # already trusts it.) The assertion below fails loudly if the floor
+        # wasn't met, instead of a confusing 404 at publish time.
+        run: |
+          npm install -g npm@"^11.5.1"
+          npm --version
+          node -e "const v=require('child_process').execSync('npm --version').toString().trim(); const [a,b,c]=v.split('.').map(Number); if (a<11 || (a===11 && (b<5 || (b===5 && c<1)))) { console.error('::error::npm '+v+' < 11.5.1 — trusted publishing will 404'); process.exit(1) }"
+
       - name: Verify the version to publish matches package.json
         env:
           DISPATCH_VERSION: ${{ github.event.inputs.version }}
