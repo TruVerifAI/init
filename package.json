@@ -1,6 +1,6 @@
 {
   "name": "@truverifai/init",
-  "version": "0.19.34",
+  "version": "0.19.35",
   "publishConfig": {
     "access": "public"
   },

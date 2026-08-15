@@ -104,16 +104,21 @@ async function init(argv) {
   const gate = hosts.installGateCode();
   gate.notes.forEach((n) => console.log("  " + (gate.installed ? "✓ " : "! ") + n));
 
+  // Every repo-scoped write goes to the repo ROOT, not to wherever the user
+  // happens to be standing (X11c). `cwd` stays the right base only for things
+  // that are genuinely cwd-relative — there are none left here.
+  const repoRoot = det.git_root || cwd;
+
   const results = [];
   if (det.claude) results.push(["Claude Code", hosts.installClaude()]);
   if (det.codex) results.push(["Codex CLI", hosts.installCodex()]);
   if (det.codex) results.push(["Codex hooks", hosts.installCodexHooks()]);
   if (det.copilot || det.vscode)
-    results.push(["Copilot (repo)", det.in_git_repo ? hosts.installCopilot(cwd, "repo") : hosts.installCopilot(cwd, "user")]);
-  if (det.cursor) results.push(["Cursor", hosts.installCursor(cwd)]);
-  if (det.gemini && det.in_git_repo) results.push(["Gemini CLI", hosts.installGemini(cwd)]);
+    results.push(["Copilot (repo)", det.in_git_repo ? hosts.installCopilot(repoRoot, "repo") : hosts.installCopilot(repoRoot, "user")]);
+  if (det.cursor) results.push(["Cursor", hosts.installCursor(repoRoot)]);
+  if (det.gemini && det.in_git_repo) results.push(["Gemini CLI", hosts.installGemini(repoRoot)]);
   if (det.antigravity && det.in_git_repo)
-    results.push(["Antigravity", hosts.installAntigravity(cwd)]);
+    results.push(["Antigravity", hosts.installAntigravity(repoRoot)]);
 
   // The git pre-commit gate, installed by default in a git repo (X11).
   //
@@ -127,18 +132,25 @@ async function init(argv) {
   // It is also the ONLY repo-scoped thing here, so the note below has to say
   // which repo got it — otherwise running init once reads as "every repo is
   // covered".
+  let gitGate = null;
   if (det.in_git_repo) {
-    results.push(["git pre-commit gate", hosts.installGitPrecommit(cwd)]);
+    gitGate = hosts.installGitPrecommit(repoRoot);
+    results.push(["git pre-commit gate", gitGate]);
   }
 
   for (const [name, r] of results) {
     console.log((r.installed ? "  ✓ " : "  ! ") + name);
     r.notes.forEach((n) => console.log("      " + n));
   }
-  if (det.in_git_repo) {
-    console.log("      ^ this one is for THIS repo only (" + cwd + ").");
+  // X11d: only claim a repo-scoped install when one actually happened. When the
+  // installer DECLINES (the user already has their own pre-commit hook) its own
+  // notes carry the path and the manual line, and appending "this one is for
+  // THIS repo only" underneath asserted an install that never took place — the
+  // same false-reassurance this line was added to prevent.
+  if (gitGate && gitGate.installed) {
+    console.log("      ^ this one is for THIS repo only (" + repoRoot + ").");
     console.log("        Add it to another: cd <repo> && npx @truverifai/init hook");
-  } else {
+  } else if (!det.in_git_repo) {
     console.log("  ! git pre-commit gate — skipped, not a git repo");
     console.log("      It catches commits made outside any agent. Add it with:");
     console.log("        cd <your repo> && npx @truverifai/init hook");
@@ -164,7 +176,7 @@ async function init(argv) {
   }
 
   // Proactive rules (init v2): interactive, defaults to yes; CI skips.
-  const ruleNotes = await rules.initStep(det, cwd, argv);
+  const ruleNotes = await rules.initStep(det, repoRoot, argv);
   console.log("");
   ruleNotes.forEach((n) => console.log(n));
 
@@ -204,6 +216,14 @@ async function main() {
       // entries, so the gates fail open for want of a token — it LOOKS
       // uninstalled while every hook is still wired in, and one `tvai login`
       // silently re-arms all of it. This takes the hooks out too.
+      // removeHooks resolves the repo root itself, so this works from a
+      // subdirectory too (X11c). Say so when they differ (audit F-006): this
+      // command DELETES files, and doing that several levels above where the
+      // user is standing without naming the target is its own small surprise.
+      const unRoot = require("../lib/detect").gitRepoRoot(process.cwd());
+      if (unRoot && unRoot !== process.cwd()) {
+        console.log("Repo-scoped configs are removed from the enclosing repo root: " + unRoot);
+      }
       console.log("Removing TruVerifAI hook configs:");
       hosts.removeHooks(process.cwd()).forEach((n) => console.log("  " + n));
       console.log("");
