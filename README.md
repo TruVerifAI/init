@@ -15,6 +15,49 @@ MIT-licensed. **Zero runtime dependencies** — this package is plain,
 unminified JavaScript and Python; `npm pack @truverifai/init` and read every
 line. There is no build step and no transitive supply chain.
 
+## Requirements
+
+- **Node 18+** — runs this installer, and every hook command it writes launches
+  a gate via `node <launcher> <host> <gate>.py`. No node, no gates, on any host.
+- **Python 3** (`python3`, or `py` on Windows) — the gate code itself.
+
+`npx @truverifai/init doctor` checks both and names the missing one, rather
+than letting an absent runtime disable the gates silently.
+
+## Turning the gates off (and back on)
+
+The review gates block risky commits and edits. One command controls all of
+them:
+
+```bash
+npx @truverifai/init gates off       # stop every gate, everywhere
+npx @truverifai/init gates on        # turn them back on
+npx @truverifai/init gates status    # what's on, and which setting decided it
+```
+
+(If you installed globally with `npm i -g @truverifai/init`, the same commands
+are available as the shorter `tvai gates off`. Plain `npx` does not leave a
+`tvai` binary on your PATH, so use the full form above unless you installed
+globally.)
+
+This writes `enable_gates` to `~/.truverifai/config.json`, which **every**
+delivery reads — the git pre-commit hook and the Codex, Cursor, Copilot,
+VS Code, Gemini and Antigravity hooks alike. The MCP review tools stay
+connected either way; only the automatic gating stops.
+
+Two things worth knowing:
+
+- **Claude Code has its own separate toggle** (`/plugin` → panel-review →
+  `enable_gates`). It governs Claude Code's own hooks and cannot reach any
+  other host — so if you use both, set both. `gates status` shows when they
+  disagree.
+- **`TVAI_ENABLE_GATES` overrides everything.** If you have it exported,
+  `gates on|off` writes the file underneath it and has no effect until you
+  unset it. `gates status` says so.
+
+To remove the gates entirely rather than switch them off, see
+[Removing it](#removing-it) below.
+
 ## What this installs, exactly
 
 `init` runs as you, interactively, and prints every file it touches. The
@@ -88,6 +131,25 @@ published at
 [github.com/TruVerifAI/claude-plugins](https://github.com/TruVerifAI/claude-plugins)
 (`plugins/panel-review/hooks/`). Build provenance attestation (CI publish
 with cryptographic linkage to this repo) is the planned next step.
+
+## Removing it
+
+```bash
+npx @truverifai/init uninstall
+```
+
+Removes every hook config `init` wrote (Codex, Cursor, Copilot, VS Code,
+Gemini, Antigravity, and the git pre-commit hook), the vendored gate code under
+`~/.truverifai/gates/`, the MCP server entries, and your stored key. Hook files
+you share with other tools are edited, not deleted — only our own entries are
+taken out, matched by marker.
+
+Marketplace plugins belong to their host, so remove those with the host's own
+command (e.g. `claude plugin uninstall panel-review@truverifai`).
+
+`npx @truverifai/init logout` is the lighter option: it clears the key and the MCP entries but
+**leaves the hooks installed**. They then fail open for want of a key, and a
+later `npx @truverifai/init login` re-arms them.
 
 ## Support
 

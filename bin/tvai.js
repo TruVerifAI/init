@@ -9,6 +9,9 @@
 //   tvai login      device-flow login only (writes ~/.truverifai/config.json)
 //   tvai doctor     verify: connectivity, key, python, SYNTHETIC GATE FIRE,
 //                   tools-half config per platform
+//   tvai gates      off | on | status — the ONE switch every gate delivery
+//                   honors (the Claude /plugin toggle governs Claude Code's
+//                   own hooks only, not the git hook or any other host)
 //   tvai rules      add/refresh the proactive rules blocks in this repo's
 //                   agent files ([check|remove|status])
 //   tvai logout     remove the stored key
@@ -28,6 +31,7 @@ const { detect } = require("../lib/detect");
 const hosts = require("../lib/hosts");
 const mcpconf = require("../lib/mcpconf");
 const rules = require("../lib/rules");
+const gates = require("../lib/gates");
 const doctor = require("../lib/doctor");
 
 function openBrowser(url) {
@@ -38,7 +42,17 @@ function openBrowser(url) {
         : process.platform === "darwin"
           ? ["open", [url]]
           : ["xdg-open", [url]];
-    spawn(cmd[0], cmd[1], { stdio: "ignore", detached: true }).unref();
+    const child = spawn(cmd[0], cmd[1], { stdio: "ignore", detached: true });
+    // X5 (2026-08-14): spawn reports a missing executable via an ASYNCHRONOUS
+    // 'error' event, not a synchronous throw — the try/catch above cannot catch
+    // it, and an unhandled 'error' on a ChildProcess is an uncaught exception
+    // that kills the process. `xdg-open` is routinely absent on headless Linux,
+    // containers, devcontainers and bare WSL images, so `tvai login` printed the
+    // device code and then died before deviceWait() could finish: login was
+    // unfinishable on exactly the machines most likely to be automated.
+    // Opening a browser is best-effort — the URL is already on screen.
+    child.on("error", () => {});
+    child.unref();
   } catch (e) {
     /* printing the URL is the fallback */
   }
@@ -152,10 +166,36 @@ async function main() {
       const r = hosts.installGitPrecommit(process.cwd());
       r.notes.forEach((n) => console.log((r.installed ? "  ✓ " : "  ! ") + n));
       process.exitCode = g.installed && r.installed ? 0 : 1;
+    } else if (cmd === "gates") {
+      // tvai gates [off|on|status] — the ONE switch every delivery honors (X9).
+      // The Claude /plugin toggle governs Claude Code's own hooks and nothing
+      // else, so it cannot turn off the git pre-commit hook or any other host.
+      process.exitCode = await gates.run(argv);
     } else if (cmd === "rules") {
       // tvai rules [check|remove|status] — manage the proactive-rules blocks
       // in this repo's agent files (default: interactive add/update).
       process.exitCode = await rules.run(argv);
+    } else if (cmd === "uninstall") {
+      // X9b: the removal `logout` never was. logout clears the key and the MCP
+      // entries, so the gates fail open for want of a token — it LOOKS
+      // uninstalled while every hook is still wired in, and one `tvai login`
+      // silently re-arms all of it. This takes the hooks out too.
+      console.log("Removing TruVerifAI hook configs:");
+      hosts.removeHooks(process.cwd()).forEach((n) => console.log("  " + n));
+      console.log("");
+      console.log("Removing the MCP review-tool configs:");
+      const gone = mcpconf.removeAll();
+      (gone.length ? gone : ["nothing to remove"]).forEach((n) => console.log("  " + n));
+      config.write({ api_key: "" });
+      console.log("");
+      console.log("  key cleared from " + config.FILE);
+      console.log("  Revoke it at https://truverif.ai/settings/api-keys");
+      console.log("  Marketplace plugins are owned by their host — remove those with");
+      console.log("  `claude plugin uninstall panel-review@truverifai` (and the codex");
+      console.log("  equivalent) if you installed them.");
+      console.log("");
+      console.log("  Prefer to keep everything installed but stop the blocking?");
+      console.log("  `tvai gates off` does that instead.");
     } else if (cmd === "logout") {
       config.write({ api_key: "" });
       // Also strip the literal key from every platform MCP config init wrote
@@ -164,7 +204,7 @@ async function main() {
       removed.forEach((n) => console.log("  " + n));
       console.log("Key removed from " + config.FILE + ". Revoke it at https://truverif.ai/settings/api-keys");
     } else {
-      console.log("usage: tvai [init|login|doctor|rules|logout]");
+      console.log("usage: tvai [init|login|doctor|gates|rules|logout|uninstall]");
       process.exitCode = 2;
     }
   } catch (e) {
