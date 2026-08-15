@@ -89,7 +89,13 @@ complete list:
   hooks), `.agents/hooks.json` (Antigravity hooks).
 - Optional agent-rules blocks (marked `TRUVERIFAI_RULES_START…END`) in
   `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` — you are asked first.
-- `tvai hook` (separate command) installs a git `pre-commit` fallback.
+- `.git/hooks/pre-commit` — the git gate, which catches commits made
+  **outside any agent** (and is the one layer `--no-verify` makes an
+  explicit, auditable act). Installed automatically when you run `init`
+  inside a git repo. It is the only repo-scoped gate, so add it to other
+  repos with `cd <repo> && npx @truverifai/init hook`. An existing
+  pre-commit hook you wrote is never overwritten — init reports it and
+  prints the line to add by hand.
 
 `logout` strips the API key from every config listed above. Nothing is
 installed as a service, daemon, or startup item; the gates only run when

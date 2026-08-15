@@ -115,9 +115,33 @@ async function init(argv) {
   if (det.antigravity && det.in_git_repo)
     results.push(["Antigravity", hosts.installAntigravity(cwd)]);
 
+  // The git pre-commit gate, installed by default in a git repo (X11).
+  //
+  // It used to be opt-in behind `tvai hook`, which meant the one layer that
+  // catches a `git commit` typed OUTSIDE any agent — and the only layer that is
+  // bypass-resistant — shipped switched off, with nothing saying so. There was
+  // never a recorded decision to make it opt-in; "fallback layer" (a statement
+  // about its ROLE) had quietly become default-off. Safe to install: it refuses
+  // to overwrite a pre-commit hook it did not write.
+  //
+  // It is also the ONLY repo-scoped thing here, so the note below has to say
+  // which repo got it — otherwise running init once reads as "every repo is
+  // covered".
+  if (det.in_git_repo) {
+    results.push(["git pre-commit gate", hosts.installGitPrecommit(cwd)]);
+  }
+
   for (const [name, r] of results) {
     console.log((r.installed ? "  ✓ " : "  ! ") + name);
     r.notes.forEach((n) => console.log("      " + n));
+  }
+  if (det.in_git_repo) {
+    console.log("      ^ this one is for THIS repo only (" + cwd + ").");
+    console.log("        Add it to another: cd <repo> && npx @truverifai/init hook");
+  } else {
+    console.log("  ! git pre-commit gate — skipped, not a git repo");
+    console.log("      It catches commits made outside any agent. Add it with:");
+    console.log("        cd <your repo> && npx @truverifai/init hook");
   }
 
   // MCP TOOLS half (init v2): connect the review tools the gate messages route
