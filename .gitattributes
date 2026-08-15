@@ -1,0 +1,16 @@
+# Line-ending rules for the PUBLISHED npm package.
+#
+# This file must live inside tvai-cli/, not at the monorepo root. The public
+# mirror (github.com/TruVerifAI/init) is a copy of THIS DIRECTORY ONLY — the
+# root .gitattributes is never copied, so the mirror had no eol rules at all.
+# Committing a CRLF file into a repo with no rules normalizes it to LF in the
+# blob, the publish workflow checks that out, and npm ships LF.
+#
+# Found 2026-08-15: every published version from 0.19.30 to 0.19.35 shipped
+# vendor/gates/run_gate.cmd LF-only, because of exactly that. cmd.exe cannot
+# parse an LF-only batch file — it executes fragments of it. The monorepo's own
+# copy was correct the whole time, which is why the CI check (which walks the
+# worktree) could never fail on it.
+*               text=auto eol=lf
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
