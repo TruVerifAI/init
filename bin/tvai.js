@@ -185,6 +185,7 @@ async function init(argv) {
   const tools = [];
   if (det.claude) tools.push(["Claude Code", mcpconf.writeClaudeCreds(key)]);
   if (det.claude) tools.push(["Claude auto-mode allowlist", mcpconf.writeClaudePermissionAllow()]);
+  if (det.claude) tools.push(["Claude marketplace auto-update", mcpconf.writeClaudeMarketplaceAutoUpdate()]);
   if (det.codex) tools.push(["Codex CLI", mcpconf.writeCodex(key)]);
   if (det.copilot) tools.push(["Copilot CLI", mcpconf.writeCopilot(key)]);
   if (det.vscode) tools.push(["VS Code", mcpconf.writeVSCode(key)]);
