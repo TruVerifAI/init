@@ -104,6 +104,26 @@ async function init(argv) {
   const gate = hosts.installGateCode();
   gate.notes.forEach((n) => console.log("  " + (gate.installed ? "✓ " : "! ") + n));
 
+  // Resolve the interpreter ONCE, here, and record it (roadmap 1.1 / 1.4).
+  // Hooks must never search in their own process — on Windows that search can
+  // kill them outright, below JavaScript, uncatchably. This is the one place
+  // the search is allowed to run, because a human is watching it.
+  //
+  // A failure here is `✗`, not `!`: without an interpreter there are no gates
+  // at all, on any host. Finishing with a cheerful success message over a dead
+  // install is exactly the false green this whole round exists to end.
+  const py = gate.installed ? hosts.recordInterpreter()
+                            : { installed: false, notes: ["skipped — gate code was not installed"] };
+  py.notes.forEach((n) => console.log("  " + (py.installed ? "✓ " : "✗ ") + n));
+
+  // Prove the gates can actually REACH us, here, at second five (roadmap 1b.3).
+  // The MCP tools verify a different endpoint; a failure on the gate endpoint is
+  // fail-open by design and therefore invisible until a gate silently lets
+  // something through. This is the check that would have caught the macOS TLS
+  // outage before any test row ran.
+  const sc = hosts.runSelfCheck(py.python, key);
+  sc.notes.forEach((n) => console.log("  " + (sc.installed ? "✓ " : "✗ ") + n));
+
   // Every repo-scoped write goes to the repo ROOT, not to wherever the user
   // happens to be standing (X11c). `cwd` stays the right base only for things
   // that are genuinely cwd-relative — there are none left here.
@@ -170,8 +190,19 @@ async function init(argv) {
   if (det.vscode) tools.push(["VS Code", mcpconf.writeVSCode(key)]);
   if (det.cursor) tools.push(["Cursor", mcpconf.writeCursor(key)]);
   if (det.gemini) tools.push(["Gemini CLI", mcpconf.writeGemini(key)]);
+  // Antigravity gets gates above, so it MUST get tools here (roadmap 3.2) —
+  // a platform we gate without wiring its exits leaves a blocked agent with
+  // a deny message whose every documented way forward is missing. T13 (the
+  // gates-vs-tools parity test) fails if this pairing is ever broken again.
+  if (det.antigravity) tools.push(["Antigravity", mcpconf.writeAntigravity(key)]);
   for (const [name, r] of tools) {
-    console.log((r.installed ? "  ✓ " : "  ! ") + name);
+    // Three grades, not two (roadmap 2.2): `severity: "error"` marks a result
+    // that leaves the tools UNUSABLE — on the Mac round that state printed as
+    // `!`, read as informational, and shipped every Mac user without review
+    // tools. A ✗ with a true cause and a working instruction, never a ! with a
+    // remedy that cannot work.
+    const mark = r.installed ? "  ✓ " : r.severity === "error" ? "  ✗ " : "  ! ";
+    console.log(mark + name);
     r.notes.forEach((n) => console.log("      " + n));
   }
 

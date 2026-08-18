@@ -47,10 +47,12 @@ connected either way; only the automatic gating stops.
 
 Two things worth knowing:
 
-- **Claude Code has its own separate toggle** (`/plugin` → panel-review →
-  `enable_gates`). It governs Claude Code's own hooks and cannot reach any
-  other host — so if you use both, set both. `gates status` shows when they
-  disagree.
+- **Claude Code no longer has its own toggle.** `enable_gates` was removed
+  from the plugin's settings panel (it could only ever reach Claude Code's own
+  hooks — the X8 split), so this command is the single switch. One exception:
+  a value stored in the panel *before* the removal may still be exported to
+  Claude Code's hooks until you clear it; `gates status` calls that out and
+  says how.
 - **`TVAI_ENABLE_GATES` overrides everything.** If you have it exported,
   `gates on|off` writes the file underneath it and has no effect until you
   unset it. `gates status` says so.
