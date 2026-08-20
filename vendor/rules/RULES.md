@@ -24,6 +24,8 @@ Other tools:
 - `record_outcome` (free) — after you act on a result, report whether it changed your decision.
 - `confirm_floor` / `record_gate_skip` — only used when a review gate blocks a write or commit; the gate prints how to use them.
 
+**Custom floor classes** (repo-defined): a repo may commit `.truverifai/risk.json` declaring its own domain-critical floor classes ("tax rules", "dosing logic") — changes matching them block exactly like the built-in floors and release the same way. When the user wants code protected this way (or the file edited), follow the guided flow: interview them on what's critical, draft the file (paths first, then keywords; `exclude_paths` for carve-outs; every floor needs a `description` in their words), validate with `npx @truverifai/init floors check --preview`, show them the file plus the concrete coverage, revise until they approve, then save and commit. The file is the user's to edit; always re-validate after a change.
+
 When in doubt, invoke — ambiguity is a reason to call, not to skip. Confidence is not a reason to skip.
 
 **How to operate the tools** (no need to read any source code — this is the whole contract):

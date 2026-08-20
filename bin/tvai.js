@@ -14,6 +14,8 @@
 //                   own hooks only, not the git hook or any other host)
 //   tvai rules      add/refresh the proactive rules blocks in this repo's
 //                   agent files ([check|remove|status])
+//   tvai floors     THIS repo's custom floor classes (.truverifai/risk.json):
+//                   status | check [--preview] | init | prompt
 //   tvai logout     remove the stored key
 //
 // Zero dependencies (Node built-ins only) so `npx @truverifai/init` is the
@@ -32,6 +34,7 @@ const hosts = require("../lib/hosts");
 const mcpconf = require("../lib/mcpconf");
 const rules = require("../lib/rules");
 const gates = require("../lib/gates");
+const floors = require("../lib/floors");
 const doctor = require("../lib/doctor");
 
 function openBrowser(url) {
@@ -243,6 +246,12 @@ async function main() {
       // tvai rules [check|remove|status] — manage the proactive-rules blocks
       // in this repo's agent files (default: interactive add/update).
       process.exitCode = await rules.run(argv);
+    } else if (cmd === "floors") {
+      // tvai floors [status|check|init|prompt] [--preview] — customer-defined
+      // custom floor classes for THIS repo (.truverifai/risk.json). Validation
+      // runs through the vendored gate code so the CLI and the gates can never
+      // disagree about what a valid floor is.
+      process.exitCode = await floors.run(argv);
     } else if (cmd === "uninstall") {
       // X9b: the removal `logout` never was. logout clears the key and the MCP
       // entries, so the gates fail open for want of a token — it LOOKS
@@ -280,7 +289,7 @@ async function main() {
       removed.forEach((n) => console.log("  " + n));
       console.log("Key removed from " + config.FILE + ". Revoke it at https://truverif.ai/settings/api-keys");
     } else {
-      console.log("usage: tvai [init|login|doctor|gates|rules|logout|uninstall]");
+      console.log("usage: tvai [init|login|doctor|gates|rules|floors|logout|uninstall]");
       process.exitCode = 2;
     }
   } catch (e) {
