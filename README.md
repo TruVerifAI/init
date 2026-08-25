@@ -5,6 +5,8 @@ One command to connect your AI coding agents to [TruVerifAI](https://truverif.ai
 Claude Code, Codex CLI, Cursor (IDE + CLI), VS Code / GitHub Copilot,
 Gemini CLI, and Antigravity.
 
+[![The write gate blocking a risky auth change, live](https://truverif.ai/media/panel-review-gate.gif)](https://truverif.ai/panel-review)
+
 ```
 npx @truverifai/init          # detect agents -> browser login -> install gates + tools -> verify
 npx @truverifai/init doctor   # re-verify anytime: gates armed, tools connected, key valid
@@ -14,6 +16,12 @@ npx @truverifai/init logout   # remove the API key from every config this tool w
 MIT-licensed. **Zero runtime dependencies** — this package is plain,
 unminified JavaScript and Python; `npm pack @truverifai/init` and read every
 line. There is no build step and no transitive supply chain.
+
+## See it in action
+
+- ▶ [90-second demo](https://youtu.be/8R71q4PkcVM) — the gate, the panel, and the critical flaw it caught
+- ▶ [Full walkthrough (8 min)](https://youtu.be/mPKonNkr1Uk) — setup, gates, skips & overrides, custom floors
+- ▶ [Extended demo (4 min)](https://youtu.be/7kYjbIZhioE) — the middle ground, with BYOM/BYOK
 
 ## Requirements
 
