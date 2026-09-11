@@ -1,9 +1,11 @@
 # @truverifai/init
 
-One command to connect your AI coding agents to [TruVerifAI](https://truverif.ai)
-— multi-model review tools plus local pre-commit/pre-write review gates — on
-Claude Code, Codex CLI, Cursor (IDE + CLI), VS Code / GitHub Copilot,
-Gemini CLI, and Antigravity.
+Panel Review is the guardian agent for AI's highest-stakes coding decisions:
+four frontier models argue over an agent's riskiest designs, diffs, and
+commits before they execute, with review gates the agent cannot silently
+skip. One command connects [TruVerifAI](https://truverif.ai) to Claude Code,
+Codex CLI, Cursor (IDE + CLI), VS Code / GitHub Copilot, Gemini CLI, and
+Antigravity.
 
 [![The write gate blocking a risky auth change, live](https://truverif.ai/media/panel-review-gate.gif)](https://truverif.ai/panel-review)
 
