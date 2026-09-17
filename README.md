@@ -191,8 +191,12 @@ the end under "needs your attention", and **the command exits nonzero** when
 secret-bearing residue remains (CI scripts that assumed exit 0 should check
 this). Silence means clean.
 
-Marketplace plugins belong to their host, so remove those with the host's own
-command (e.g. `claude plugin uninstall panel-review@truverifai`).
+Uninstall also **tries the host CLIs** to remove the plugins init installed
+(`claude plugin uninstall panel-review@truverifai`,
+`codex plugin remove panel-review@truverifai`), best-effort: each attempt
+prints what happened, a failure never blocks the rest of the uninstall, and
+where no runnable CLI exists (the Claude desktop app) it prints the in-app
+step instead (+ button, then Plugins).
 
 `npx @truverifai/init logout` is the lighter option: it clears the key (and
 our backups of files that held it) and the MCP entries but **leaves the hooks

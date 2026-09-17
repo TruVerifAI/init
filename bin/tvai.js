@@ -177,17 +177,30 @@ function parsePlanAnswer(ans, planned) {
   if (ans === "" || ans === "y" || ans === "yes") return { all: true };
   if (ans === "n" || ans === "no" || ans === "q" || ans === "quit") return { decline: true };
   const toks = ans.split(/[\s,]+/).filter(Boolean);
+  // Separators-only (",,,") used to fall through as {agents: []} and proceed
+  // into sign-in with NOTHING selected (adversarial review finding 5) —
+  // an unreadable answer re-prompts like any other.
+  if (!toks.length) {
+    return { retry: "  Could not read that answer.\n  Available here: " + planned.join(", ") };
+  }
+  // Every problem in ONE corrective message (FW1 smoke finding 2: a mixed
+  // bad answer like "claud, hook, xyz" got only the component note, so each
+  // problem class cost the user a separate attempt out of their three).
+  // Grammar follows the count — "`hook` is a component", not "are".
   const comps = toks.filter((t) => SKIP_COMPONENTS.indexOf(t) >= 0);
+  const unknown = toks.filter((t) => SKIP_COMPONENTS.indexOf(t) < 0 && KNOWN_AGENTS.indexOf(t) < 0);
+  const missing = toks.filter((t) => KNOWN_AGENTS.indexOf(t) >= 0 && planned.indexOf(t) < 0);
+  const problems = [];
   if (comps.length) {
-    return { retry: "  `" + comps.join("`, `") + "` are components, not agents — control them with --skip " + comps.join(",") };
+    problems.push("  `" + comps.join("`, `") + "` " + (comps.length === 1
+      ? "is a component, not an agent — control it with --skip "
+      : "are components, not agents — control them with --skip ") + comps.join(","));
   }
-  const unknown = toks.filter((t) => KNOWN_AGENTS.indexOf(t) < 0);
-  if (unknown.length) {
-    return { retry: "  Unknown agent(s): " + unknown.join(", ") + "\n  Available here: " + planned.join(", ") };
-  }
-  const missing = toks.filter((t) => planned.indexOf(t) < 0);
-  if (missing.length) {
-    return { retry: "  Not detected on this machine (or excluded by flags): " + missing.join(", ") + "\n  Available here: " + planned.join(", ") };
+  if (unknown.length) problems.push("  Unknown agent(s): " + unknown.join(", "));
+  if (missing.length) problems.push("  Not detected on this machine (or excluded by flags): " + missing.join(", "));
+  if (problems.length) {
+    problems.push("  Available here: " + planned.join(", "));
+    return { retry: problems.join("\n") };
   }
   // Dedupe, keep the plan's order so output stays stable.
   const set = {};
@@ -623,10 +636,19 @@ async function main() {
       if (unKey) {
         const rr = await api.revokeSelf(config.baseUrl(), unKey);
         revoked = !!rr.ok;
+        // 0.19.47: a 401 on a RE-RUN usually means the key is already dead,
+        // but a 401 can also be a live key sent to the wrong base_url —
+        // don't claim verified success, state both readings and where to
+        // check (batch audit F-001: "already revoked - nothing to revoke"
+        // masked the wrong-environment case).
         console.log(revoked
           ? "  API key revoked server-side"
-          : "  API key NOT revoked (" + (rr.why || ("HTTP " + rr.status)) +
-            ") — revoke it at https://truverif.ai/settings/api-keys");
+          : rr.status === 401
+            ? "  API key not accepted by the server (already revoked — expected on a "
+              + "re-run — or not valid for this server). If you did not expect this, "
+              + "check https://truverif.ai/settings/api-keys"
+            : "  API key NOT revoked (" + (rr.why || ("HTTP " + rr.status)) +
+              ") — revoke it at https://truverif.ai/settings/api-keys");
       }
       // Fix A8: remove ~/.truverifai entirely — after the key is revoked and
       // the gate code went with removeHooks, only inert state remains.
@@ -653,9 +675,35 @@ async function main() {
         process.exitCode = 1;
       }
       console.log("");
-      console.log("  Marketplace plugins are owned by their host — remove those with");
-      console.log("  `claude plugin uninstall panel-review@truverifai` (and the codex");
-      console.log("  equivalent) if you installed them.");
+      // 0.19.47 Option B (owner ruling): try the host CLIs to remove the
+      // plugins init installed — best-effort, each attempt printed; a
+      // failure never fails the uninstall (the notes say what to do).
+      // Belt-and-braces try/catch (batch audit F-002/F-003): every path
+      // inside is already guarded, but an unforeseen throw here must not
+      // swallow the survivors note below — that note is the user's only
+      // record of what an uninstall cannot reach.
+      try {
+        hosts.uninstallHostPlugins().forEach((n) => console.log("  " + n));
+      } catch (e) {
+        console.log("  host plugin removal errored (" + String(e && e.message || e).slice(0, 120)
+          + ") — remove marketplace plugins with the host's own command or UI");
+      }
+      console.log("");
+      // 0.19.47 backlog 7b (FW1 R9): name the survivors instead of letting a
+      // recreated 200-byte cache read as a failed delete. Git pre-commit
+      // gates in OTHER repos are repo-scoped by design — this command cannot
+      // reach them — and any plugin that survived the best-effort removal
+      // above re-creates ~/.truverifai/python-path.json (a non-secret
+      // interpreter cache) the next time its gate fires.
+      console.log("  Still installed elsewhere (this command cannot reach them):");
+      console.log("  - git pre-commit gates in OTHER repos — remove each with");
+      console.log("    `cd <repo> && npx @truverifai/init uninstall` (they fail open,");
+      console.log("    loudly, until then).");
+      console.log("  - Any marketplace plugin the removal above could not reach (no");
+      console.log("    runnable host CLI, or it reported a failure) — remove it with the");
+      console.log("    host's own command or UI. While a plugin remains, its gates keep");
+      console.log("    running fail-open and may recreate a small non-secret cache under");
+      console.log("    ~/.truverifai (python-path.json).");
       console.log("  Codex users: `[features] hooks = true` in ~/.codex/config.toml is");
       console.log("  left in place (other hooks may rely on it) — delete that line");
       console.log("  yourself if nothing else uses hooks.");
