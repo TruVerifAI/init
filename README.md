@@ -1,19 +1,31 @@
 # @truverifai/init
 
-Panel Review is the guardian agent for AI's highest-stakes coding decisions:
-four frontier models argue over an agent's riskiest designs, diffs, and
-commits before they execute, with review gates the agent cannot silently
-skip. One command connects [TruVerifAI](https://truverif.ai) to Claude Code,
-Codex CLI, Cursor (IDE + CLI), VS Code / GitHub Copilot, Gemini CLI, and
-Antigravity.
+One command to connect your AI coding agents to [TruVerifAI](https://truverif.ai)
+— multi-model review tools plus local pre-commit/pre-write review gates — on
+Claude Code, Codex CLI, Cursor (IDE + CLI), VS Code / GitHub Copilot,
+Gemini CLI, and Antigravity.
 
 [![The write gate blocking a risky auth change, live](https://truverif.ai/media/panel-review-gate.gif)](https://truverif.ai/panel-review)
 
 ```
-npx @truverifai/init          # detect agents -> browser login -> install gates + tools -> verify
+npx @truverifai/init          # plan -> one confirm -> browser login -> install gates + tools -> verify
 npx @truverifai/init doctor   # re-verify anytime: gates armed, tools connected, key valid
 npx @truverifai/init logout   # remove the API key from every config this tool wrote
 ```
+
+`init` shows a plan of everything it will write for **your** machine and asks
+once before touching anything. To scope or preview it:
+
+```
+npx @truverifai/init --dry-run              # print the plan, write nothing
+npx @truverifai/init --only claude,codex    # install for these agents only
+npx @truverifai/init --skip gemini,hook,rules   # everything except these
+npx @truverifai/init --yes                  # non-interactive (CI): accept the plan
+```
+
+Agent names: `claude`, `codex`, `copilot`, `vscode`, `cursor`, `gemini`,
+`antigravity`; `hook` is the git pre-commit gate and `rules` the agent-rules
+blocks. Declining the prompt exits with nothing written.
 
 MIT-licensed. **Zero runtime dependencies** — this package is plain,
 unminified JavaScript and Python; `npm pack @truverifai/init` and read every
@@ -72,8 +84,8 @@ To remove the gates entirely rather than switch them off, see
 
 ## What this installs, exactly
 
-`init` runs as you, interactively, and prints every file it touches. The
-complete list:
+`init` runs as you, interactively: it prints the plan first, writes only
+after you confirm, and prints every file it touches. The complete list:
 
 **Its own home — `~/.truverifai/`**
 - `config.json` — your `tvai_…` API key (minted via browser device-flow
@@ -156,18 +168,36 @@ with cryptographic linkage to this repo) is the planned next step.
 npx @truverifai/init uninstall
 ```
 
-Removes every hook config `init` wrote (Codex, Cursor, Copilot, VS Code,
-Gemini, Antigravity, and the git pre-commit hook), the vendored gate code under
-`~/.truverifai/gates/`, the MCP server entries, and your stored key. Hook files
-you share with other tools are edited, not deleted — only our own entries are
-taken out, matched by marker.
+A complete removal, in one command:
+
+- **Every hook config `init` wrote** (Codex, Cursor, Copilot, VS Code,
+  Gemini, Antigravity, and the git pre-commit hook), the vendored gate code
+  under `~/.truverifai/`, and the MCP server entries. Hook files you share
+  with other tools are edited, not deleted — only our own entries are taken
+  out, matched by marker.
+- **Your API key, revoked server-side.** Before deleting the local key file,
+  uninstall calls the API to revoke the key itself, so any leaked or synced
+  copy of it is dead. If the server is unreachable it says so and continues
+  (the local removal never blocks on the network).
+- **The plugin token in Claude's credential store** — on a Mac this is the
+  Keychain entry's panel-review value, edited in place (the Keychain item
+  itself is Claude's and is left alone).
+- **The `.tvai-bak` backups** `init` made of shared config files — deleted
+  only after the live file is verified clean; if a live file still contains
+  our entries, its backup is kept and named as the restore source.
+
+Uninstall is honest about failure: anything it could not remove is listed at
+the end under "needs your attention", and **the command exits nonzero** when
+secret-bearing residue remains (CI scripts that assumed exit 0 should check
+this). Silence means clean.
 
 Marketplace plugins belong to their host, so remove those with the host's own
 command (e.g. `claude plugin uninstall panel-review@truverifai`).
 
-`npx @truverifai/init logout` is the lighter option: it clears the key and the MCP entries but
-**leaves the hooks installed**. They then fail open for want of a key, and a
-later `npx @truverifai/init login` re-arms them.
+`npx @truverifai/init logout` is the lighter option: it clears the key (and
+our backups of files that held it) and the MCP entries but **leaves the hooks
+installed**. They then fail open for want of a key, and a later
+`npx @truverifai/init login` re-arms them.
 
 ## Support
 
