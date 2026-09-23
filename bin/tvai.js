@@ -143,9 +143,20 @@ function resolveInitScope(detected, argv) {
   const skipList = skip.list || [];
 
   if (only.list) {
-    const bad = only.list.filter((t) => KNOWN_AGENTS.indexOf(t) < 0);
-    if (bad.length) {
-      return { error: "Unknown agent(s) in --only: " + bad.join(", ") + "\nKnown: " + KNOWN_AGENTS.join(", ") };
+    // Same component-aware split as parsePlanAnswer (backlog 13): `--only hook`
+    // used to say "Unknown agent" about a token init itself documents.
+    const comps = only.list.filter((t) => SKIP_COMPONENTS.indexOf(t) >= 0);
+    const bad = only.list.filter((t) => KNOWN_AGENTS.indexOf(t) < 0 && SKIP_COMPONENTS.indexOf(t) < 0);
+    if (comps.length || bad.length) {
+      const problems = [];
+      if (comps.length) {
+        problems.push("`" + comps.join("`, `") + "` " + (comps.length === 1
+          ? "is a component, not an agent — control it with --skip "
+          : "are components, not agents — control them with --skip ") + comps.join(","));
+      }
+      if (bad.length) problems.push("Unknown agent(s) in --only: " + bad.join(", "));
+      problems.push("Known agents: " + KNOWN_AGENTS.join(", "));
+      return { error: problems.join("\n") };
     }
   }
   const badSkip = skipList.filter((t) => KNOWN_AGENTS.indexOf(t) < 0 && SKIP_COMPONENTS.indexOf(t) < 0);
@@ -511,6 +522,14 @@ async function init(argv) {
 
 async function main() {
   const argv = process.argv.slice(2);
+  // --version answers the question directly (standard CLI convention). Before
+  // this existed, `npx @truverifai/init --version` fell through to the default
+  // init command and performed a COMPLETE non-interactive install (FW2 report
+  // finding 1 / backlog #20) — the opposite of what a version probe asked for.
+  if (argv.includes("--version") || argv.includes("-v")) {
+    console.log(require("../package.json").version);
+    return;
+  }
   // Fix B2: --only/--skip/--platform take a VALUE — the old `first token not
   // starting with "-"` rule would read `--only claude` as the command
   // "claude". Skip value-taking flags' arguments when finding the command.
@@ -522,6 +541,31 @@ async function main() {
     if (a.startsWith("-")) continue;
     cmd = a;
     break;
+  }
+  // Backlog #20, the consent half: an UNKNOWN flag must never start an
+  // install. Flags are skipped when finding the command, so any unrecognized
+  // flag used to fall through to the default init — which, in a non-TTY
+  // session, proceeded without confirmation and wrote real config. On the
+  // init path (default or explicit), reject unknown flags in ONE corrective
+  // message and write nothing — the same strict posture --only already has.
+  // Explicit subcommands keep owning their own flags (doctor takes
+  // --platform, gates takes on/off, ...), so they are not validated here.
+  if (cmd === "init") {
+    const INIT_FLAGS = ["--only", "--skip", "--dry-run", "--yes", "--rules", "--no-rules"];
+    const badFlags = [];
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i];
+      if (a === "--only" || a === "--skip") { i++; continue; } // their values are validated by resolveInitScope
+      if (a.startsWith("-") && INIT_FLAGS.indexOf(a) < 0 && badFlags.indexOf(a) < 0) badFlags.push(a);
+    }
+    if (badFlags.length) {
+      console.error("Unknown flag" + (badFlags.length === 1 ? "" : "s") + ": " + badFlags.join(", "));
+      console.error("init flags: --only <agents> · --skip <agents,hook,rules> · --dry-run · --yes · --rules · --no-rules");
+      console.error("commands:   init · login · doctor · gates · rules · floors · logout · uninstall  (--version prints the version)");
+      console.error("Nothing was installed or changed.");
+      process.exitCode = 2;
+      return;
+    }
   }
   try {
     if (cmd === "init") process.exitCode = await init(argv);

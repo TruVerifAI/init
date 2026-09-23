@@ -21,11 +21,14 @@ npx @truverifai/init --dry-run              # print the plan, write nothing
 npx @truverifai/init --only claude,codex    # install for these agents only
 npx @truverifai/init --skip gemini,hook,rules   # everything except these
 npx @truverifai/init --yes                  # non-interactive (CI): accept the plan
+npx @truverifai/init --version              # print the version, do nothing else
 ```
 
 Agent names: `claude`, `codex`, `copilot`, `vscode`, `cursor`, `gemini`,
 `antigravity`; `hook` is the git pre-commit gate and `rules` the agent-rules
-blocks. Declining the prompt exits with nothing written.
+blocks. Declining the prompt exits with nothing written. A flag init does
+not recognize also exits with nothing written (it never falls through to an
+install).
 
 MIT-licensed. **Zero runtime dependencies** — this package is plain,
 unminified JavaScript and Python; `npm pack @truverifai/init` and read every
